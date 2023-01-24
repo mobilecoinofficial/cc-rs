@@ -287,6 +287,31 @@ impl Object {
 }
 
 impl Build {
+    /// Get Apple SDK Path
+    ///
+    /// This will return a result instead of panicing;
+    pub fn try_get_apple_sdk_path(&self, sdk: &str) -> Result<OsString, Error> {
+        let sdk_path = run_output(
+            self.cmd("xcrun")
+                .arg("--show-sdk-path")
+                .arg("--sdk")
+                .arg(sdk),
+            "xcrun",
+        )?;
+
+        let sdk_path = match String::from_utf8(sdk_path) {
+            Ok(p) => p,
+            Err(_) => {
+                return Err(Error::new(
+                    ErrorKind::IOError,
+                    "Unable to determine Apple SDK path.",
+                ));
+            }
+        };
+        let ret: OsString = sdk_path.trim().into();
+        Ok(ret)
+    }
+
     /// Construct a new instance of a blank set of configuration.
     ///
     /// This builder is finished with the [`compile`] function.
@@ -2277,8 +2302,16 @@ impl Build {
             self.apple_sdk_root(sdk.as_str())?
         };
 
-        cmd.args.push("-isysroot".into());
-        cmd.args.push(sdk_path);
+        if is_catalyst {
+            // -iframework instead of isysroot for macabi suggested here:
+            // https://gitlab.kitware.com/cmake/cmake/-/issues/20132
+            cmd.args.push("-iframework".into());
+            cmd.args.push(OsString::from(format!("{}/System/iOSSupport/System/Library/Frameworks", sdk_path.to_str().unwrap())));
+        } else {
+            cmd.args.push("-isysroot".into());
+            cmd.args.push(sdk_path);
+        }
+
         // TODO: Remove this once Apple stops accepting apps built with Xcode 13
         cmd.args.push("-fembed-bitcode".into());
 
